@@ -1,0 +1,31 @@
+## .NET Core / C# .gitignore
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+bld/
+[Bb]uild/
+
+# Windows temp
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Local test scripts & configs
+test_*.ps1
+run_*.ps1
+agent_config.json
+appsettings.Development.json
