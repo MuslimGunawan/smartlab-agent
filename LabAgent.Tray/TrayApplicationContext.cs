@@ -81,6 +81,9 @@ namespace LabAgent.Tray
 
             menu.Items.Add(new ToolStripSeparator());
 
+            var reportItem = new ToolStripMenuItem("🛠 Lapor Kendala / Kerusakan PC Ini...", null, (s, e) => OpenReportIssue());
+            menu.Items.Add(reportItem);
+
             var pairItem = new ToolStripMenuItem("Pasangkan PC ke Ruangan Lab...", null, (s, e) => PromptPairing());
             menu.Items.Add(pairItem);
 
@@ -105,6 +108,33 @@ namespace LabAgent.Tray
         private void UpdateStatus()
         {
             _notifyIcon.ContextMenuStrip = BuildContextMenu();
+        }
+
+        private void OpenReportIssue()
+        {
+            var cfg = _configManager.Load();
+            if (_configManager.IsPaired(cfg) && !string.IsNullOrWhiteSpace(cfg.DeviceToken))
+            {
+                string baseUrl = cfg.ServerBaseUrl ?? "http://127.0.0.1:8000/api/v1";
+                string cleanBase = baseUrl.Replace("/api/v1", "").TrimEnd('/');
+                string url = $"{cleanBase}/report-issue/{cfg.DeviceToken}";
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = url,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Gagal membuka browser: {ex.Message}", "SmartLab Unimal", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Komputer ini belum terhubung dengan sistem SmartLab.", "SmartLab Unimal", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         private async void PromptPairing()
