@@ -12,8 +12,15 @@ namespace LabAgent.Service
         private readonly KioskManager _kioskManager;
         private readonly ScheduleManager _scheduleManager;
         private readonly UpdateManager _updateManager;
+        private readonly HardwareManager _hardwareManager;
+        private readonly SoftwareManager _softwareManager;
+        private readonly BlocklistWatcher _blocklistWatcher;
+        private readonly OfflineQueueManager _offlineQueueManager;
+
         private DateTime _lastConfigSync = DateTime.MinValue;
         private DateTime _lastUpdateCheck = DateTime.MinValue;
+        private DateTime _lastHardwareSync = DateTime.MinValue;
+        private DateTime _lastSoftwareSync = DateTime.MinValue;
 
         public Worker(
             ILogger<Worker> logger,
@@ -27,6 +34,10 @@ namespace LabAgent.Service
             _commandExecutor = commandExecutor;
             _kioskManager = new KioskManager();
             _scheduleManager = new ScheduleManager();
+            _hardwareManager = new HardwareManager();
+            _softwareManager = new SoftwareManager();
+            _blocklistWatcher = new BlocklistWatcher();
+            _offlineQueueManager = new OfflineQueueManager();
 
             var cfg = _configManager.Load();
             _updateManager = new UpdateManager("MuslimGunawan/smartlab-agent");
@@ -35,7 +46,7 @@ namespace LabAgent.Service
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("=================================================");
-            _logger.LogInformation("SmartLab Unimal Agent Service Dimulai");
+            _logger.LogInformation("SmartLab Unimal Agent Service Dimulai (Fase 3 Active)");
             _logger.LogInformation("Repo Auto-Update: https://github.com/MuslimGunawan/smartlab-agent");
             _logger.LogInformation("=================================================");
 
@@ -57,7 +68,7 @@ namespace LabAgent.Service
 
                 try
                 {
-                    // 1. Sync Config & Schedules every 5 minutes or at startup
+                    // 1. Sync Config, Schedules & Blocklist every 5 minutes or at startup
                     if ((DateTime.UtcNow - _lastConfigSync).TotalMinutes >= 5)
                     {
                         var configRes = await _apiClient.GetConfigAsync();
@@ -65,7 +76,9 @@ namespace LabAgent.Service
                         {
                             _lastConfigSync = DateTime.UtcNow;
                             _scheduleManager.UpdateSchedules(configRes.Data.Schedules);
-                            _logger.LogInformation("Sinkronisasi konfigurasi berhasil: {Count} jadwal aktif termuat.", configRes.Data.Schedules.Count);
+                            _blocklistWatcher.UpdateBlocklist(configRes.Data.Blocklist);
+                            _logger.LogInformation("Sinkronisasi konfigurasi berhasil: {SchedCount} jadwal, {BlockCount} aplikasi terlarang termuat.",
+                                configRes.Data.Schedules.Count, configRes.Data.Blocklist.Count);
 
                             // Apply Kiosk settings if defined
                             if (configRes.Data.KioskSettings != null)
@@ -75,7 +88,86 @@ namespace LabAgent.Service
                         }
                     }
 
-                    // 2. Check for Auto-Update every 6 hours or at startup
+                    // 2. Hardware Specs Sync (once per 24 hours or startup)
+                    if ((DateTime.UtcNow - _lastHardwareSync).TotalHours >= 24)
+                    {
+                        _lastHardwareSync = DateTime.UtcNow;
+                        try
+                        {
+                            var hwSpecs = _hardwareManager.CollectHardwareSpecs();
+                            var hwRes = await _apiClient.SyncHardwareAsync(hwSpecs);
+                            if (hwRes != null && hwRes.Success)
+                            {
+                                _logger.LogInformation("Spesifikasi hardware & {Count} partisi storage berhasil disinkronisasi ke server.", hwSpecs.Partitions.Count);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning("Gagal mengumpulkan spesifikasi hardware: {Msg}", ex.Message);
+                        }
+                    }
+
+                    // 3. Software Inventory Sync (once per 6 hours or startup)
+                    if ((DateTime.UtcNow - _lastSoftwareSync).TotalHours >= 6)
+                    {
+                        _lastSoftwareSync = DateTime.UtcNow;
+                        try
+                        {
+                            var installed = _softwareManager.GetInstalledSoftware();
+                            var swRes = await _apiClient.SyncSoftwareAsync(new SoftwareSyncRequest { Software = installed });
+                            if (swRes != null && swRes.Success)
+                            {
+                                _logger.LogInformation("Inventarisasi software berhasil: {Count} aplikasi terdaftar di server.", installed.Count);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning("Gagal sinkronisasi inventarisasi software: {Msg}", ex.Message);
+                        }
+                    }
+
+                    // 4. Blocklist Process Watcher & Screenshot Capture
+                    try
+                    {
+                        int violations = await _blocklistWatcher.CheckAndEnforceAsync(
+                            Environment.UserName,
+                            async (procName, user, screenshotBytes) =>
+                            {
+                                _logger.LogWarning("⚠️ PELANGGARAN TERDETEKSI: Proses terlarang '{Proc}' dibuka oleh user '{User}'. Memaksa tutup dan mengambil screenshot...", procName, user);
+
+                                try
+                                {
+                                    var repRes = await _apiClient.ReportViolationAsync(procName, user, screenshotBytes);
+                                    if (repRes != null && repRes.Success)
+                                    {
+                                        _logger.LogInformation("Laporan pelanggaran '{Proc}' dan screenshot berhasil diunggah ke dashboard.", procName);
+                                    }
+                                    else
+                                    {
+                                        _offlineQueueManager.EnqueueViolation(procName, user, screenshotBytes);
+                                        _logger.LogWarning("Server tidak merespons. Pelanggaran '{Proc}' disimpan ke antrian offline.", procName);
+                                    }
+                                }
+                                catch
+                                {
+                                    _offlineQueueManager.EnqueueViolation(procName, user, screenshotBytes);
+                                    _logger.LogWarning("Koneksi gagal. Pelanggaran '{Proc}' disimpan ke antrian offline.", procName);
+                                }
+                            },
+                            isSimulationMode: config.IsSimulationMode
+                        );
+
+                        if (violations > 0)
+                        {
+                            _logger.LogInformation("Pemeriksaan proses: {Count} pelanggaran ditangani.", violations);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning("Kesalahan saat evaluasi blocklist watcher: {Msg}", ex.Message);
+                    }
+
+                    // 5. Check for Auto-Update every 6 hours
                     if ((DateTime.UtcNow - _lastUpdateCheck).TotalHours >= 6)
                     {
                         _lastUpdateCheck = DateTime.UtcNow;
@@ -86,7 +178,7 @@ namespace LabAgent.Service
                         }
                     }
 
-                    // 3. Check Local Schedules
+                    // 6. Check Local Schedules
                     var dueSchedule = _scheduleManager.CheckDueSchedule(DateTime.Now);
                     if (dueSchedule != null)
                     {
@@ -106,7 +198,7 @@ namespace LabAgent.Service
                         await _commandExecutor.ExecuteAsync(scheduleCmd, config, _kioskManager);
                     }
 
-                    // 4. Send Heartbeat
+                    // 7. Send Heartbeat
                     var hbResponse = await _apiClient.SendHeartbeatAsync(
                         status: "online",
                         activeUser: Environment.UserName,
@@ -118,7 +210,18 @@ namespace LabAgent.Service
                         var data = hbResponse.Data;
                         _logger.LogInformation("Heartbeat berhasil terkirim. Komputer: {Name} (ID: {Id})", data.NamaPc, data.ComputerId);
 
-                        // 5. Process Pending Commands
+                        // Flush any offline queued violations
+                        try
+                        {
+                            int flushed = await _offlineQueueManager.FlushQueueAsync(_apiClient);
+                            if (flushed > 0)
+                            {
+                                _logger.LogInformation("Antrian offline: {Count} laporan pelanggaran tertunda berhasil dikirim.", flushed);
+                            }
+                        }
+                        catch { }
+
+                        // 8. Process Pending Commands
                         if (data.PendingCommands.Count > 0)
                         {
                             _logger.LogInformation("Menerima {Count} perintah baru dari dashboard.", data.PendingCommands.Count);

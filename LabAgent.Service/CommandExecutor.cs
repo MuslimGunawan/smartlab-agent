@@ -91,12 +91,174 @@ namespace LabAgent.Service
                     }
                     return new CommandExecutionResult { Success = true, Message = "Kiosk toggle diterima." };
 
+                case "cleanup":
+                    if (config.IsSimulationMode)
+                    {
+                        _logger.LogInformation("[SIMULASI] Pembersihan file sampah (%TEMP% & Recycle Bin) berhasil disimulasikan.");
+                        return new CommandExecutionResult
+                        {
+                            Success = true,
+                            Message = "[SIMULASI] Pembersihan selesai: Berhasil membebaskan 1.45 GB data sementara."
+                        };
+                    }
+
+                    var cleanupMgr = new CleanupManager();
+                    var cleanRes = cleanupMgr.ExecuteCleanup();
+                    _logger.LogInformation("{Message}", cleanRes.Message);
+                    return new CommandExecutionResult
+                    {
+                        Success = cleanRes.Success,
+                        Message = cleanRes.Message
+                    };
+
+                case "uninstall_software":
+                    string swName = command.Payload?.SoftwareName ?? "Aplikasi";
+                    string? uninstStr = command.Payload?.UninstallString;
+
+                    if (string.IsNullOrWhiteSpace(uninstStr))
+                    {
+                        return new CommandExecutionResult
+                        {
+                            Success = false,
+                            Message = $"Tidak ada string uninstaller untuk '{swName}'."
+                        };
+                    }
+
+                    if (config.IsSimulationMode)
+                    {
+                        _logger.LogInformation("[SIMULASI] Uninstall '{Software}' disimulasikan dengan string: {String}", swName, uninstStr);
+                        return new CommandExecutionResult
+                        {
+                            Success = true,
+                            Message = $"[SIMULASI] Silent uninstall '{swName}' berhasil disimulasikan."
+                        };
+                    }
+
+                    return ExecuteSilentUninstall(swName, uninstStr);
+
                 default:
                     return new CommandExecutionResult
                     {
                         Success = false,
                         Message = $"Tipe perintah '{command.Type}' belum didukung pada versi Agent ini."
                     };
+            }
+        }
+
+        private CommandExecutionResult ExecuteSilentUninstall(string softwareName, string rawUninstallString)
+        {
+            try
+            {
+                string commandLine = rawUninstallString.Trim();
+                string fileName;
+                string arguments;
+
+                if (commandLine.StartsWith("msiexec", StringComparison.OrdinalIgnoreCase))
+                {
+                    fileName = "msiexec.exe";
+                    string guidOrArgs = commandLine.Substring(7).Trim();
+                    if (guidOrArgs.StartsWith("/I", StringComparison.OrdinalIgnoreCase))
+                    {
+                        guidOrArgs = "/x" + guidOrArgs.Substring(2);
+                    }
+                    else if (!guidOrArgs.StartsWith("/x", StringComparison.OrdinalIgnoreCase))
+                    {
+                        guidOrArgs = "/x " + guidOrArgs;
+                    }
+                    arguments = $"{guidOrArgs} /qn /norestart";
+                }
+                else
+                {
+                    if (commandLine.StartsWith("\""))
+                    {
+                        int closingQuote = commandLine.IndexOf('"', 1);
+                        if (closingQuote > 1)
+                        {
+                            fileName = commandLine.Substring(1, closingQuote - 1);
+                            arguments = commandLine.Substring(closingQuote + 1).Trim();
+                        }
+                        else
+                        {
+                            fileName = commandLine.Trim('"');
+                            arguments = "";
+                        }
+                    }
+                    else
+                    {
+                        int firstSpace = commandLine.IndexOf(' ');
+                        if (firstSpace > 0)
+                        {
+                            fileName = commandLine.Substring(0, firstSpace);
+                            arguments = commandLine.Substring(firstSpace + 1).Trim();
+                        }
+                        else
+                        {
+                            fileName = commandLine;
+                            arguments = "";
+                        }
+                    }
+
+                    if (!arguments.Contains("/silent", StringComparison.OrdinalIgnoreCase) &&
+                        !arguments.Contains("/quiet", StringComparison.OrdinalIgnoreCase) &&
+                        !arguments.Contains("/s", StringComparison.OrdinalIgnoreCase))
+                    {
+                        arguments = $"{arguments} /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /quiet /qn /s".Trim();
+                    }
+                }
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                using var proc = Process.Start(psi);
+                if (proc == null)
+                {
+                    return new CommandExecutionResult
+                    {
+                        Success = false,
+                        Message = $"Gagal memulai proses uninstaller untuk '{softwareName}'."
+                    };
+                }
+
+                bool finished = proc.WaitForExit(180000);
+                if (!finished)
+                {
+                    try { proc.Kill(true); } catch { }
+                    return new CommandExecutionResult
+                    {
+                        Success = false,
+                        Message = $"Proses uninstaller '{softwareName}' melebihi batas waktu (timeout 3 menit)."
+                    };
+                }
+
+                if (proc.ExitCode == 0 || proc.ExitCode == 3010)
+                {
+                    return new CommandExecutionResult
+                    {
+                        Success = true,
+                        Message = $"Software '{softwareName}' berhasil di-uninstall secara silent (Exit Code: {proc.ExitCode})."
+                    };
+                }
+                else
+                {
+                    return new CommandExecutionResult
+                    {
+                        Success = false,
+                        Message = $"Uninstaller '{softwareName}' selesai dengan kode keluar: {proc.ExitCode}."
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new CommandExecutionResult
+                {
+                    Success = false,
+                    Message = $"Exception saat uninstall '{softwareName}': {ex.Message}"
+                };
             }
         }
 

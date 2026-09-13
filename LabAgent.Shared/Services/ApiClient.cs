@@ -146,6 +146,80 @@ namespace LabAgent.Shared.Services
             return JsonSerializer.Deserialize<ApiResponse<AgentConfigResponseData>>(responseText);
         }
 
+        public async Task<ApiResponse<object>?> SyncHardwareAsync(HardwareSyncRequest hardwareReq)
+        {
+            if (string.IsNullOrEmpty(_config.DeviceToken))
+            {
+                return null;
+            }
+
+            string url = $"{_config.ServerBaseUrl.TrimEnd('/')}/agent/hardware";
+            string json = JsonSerializer.Serialize(hardwareReq);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.DeviceToken);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.SendAsync(request);
+            string responseText = await response.Content.ReadAsStringAsync();
+
+            return JsonSerializer.Deserialize<ApiResponse<object>>(responseText);
+        }
+
+        public async Task<ApiResponse<object>?> SyncSoftwareAsync(SoftwareSyncRequest softwareReq)
+        {
+            if (string.IsNullOrEmpty(_config.DeviceToken))
+            {
+                return null;
+            }
+
+            string url = $"{_config.ServerBaseUrl.TrimEnd('/')}/agent/software";
+            string json = JsonSerializer.Serialize(softwareReq);
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.DeviceToken);
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.SendAsync(request);
+            string responseText = await response.Content.ReadAsStringAsync();
+
+            return JsonSerializer.Deserialize<ApiResponse<object>>(responseText);
+        }
+
+        public async Task<ApiResponse<object>?> ReportViolationAsync(string processName, string? activeUser, byte[]? screenshotBytes)
+        {
+            if (string.IsNullOrEmpty(_config.DeviceToken))
+            {
+                return null;
+            }
+
+            string url = $"{_config.ServerBaseUrl.TrimEnd('/')}/agent/violations";
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.DeviceToken);
+
+            using var content = new MultipartFormDataContent();
+            content.Add(new StringContent(processName), "process_name");
+            if (!string.IsNullOrEmpty(activeUser))
+            {
+                content.Add(new StringContent(activeUser), "active_user");
+            }
+            content.Add(new StringContent(DateTime.UtcNow.ToString("o")), "detected_at");
+
+            if (screenshotBytes != null && screenshotBytes.Length > 0)
+            {
+                var imageContent = new ByteArrayContent(screenshotBytes);
+                imageContent.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                content.Add(imageContent, "screenshot", "violation.jpg");
+                content.Add(new StringContent(Convert.ToBase64String(screenshotBytes)), "screenshot_base64");
+            }
+
+            request.Content = content;
+            var response = await _httpClient.SendAsync(request);
+            string responseText = await response.Content.ReadAsStringAsync();
+
+            return JsonSerializer.Deserialize<ApiResponse<object>>(responseText);
+        }
+
         private string? GetMacAddress()
         {
             try

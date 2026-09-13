@@ -103,6 +103,75 @@ namespace LabAgent.Shared.Models
 
         [JsonPropertyName("disable_control_panel")]
         public bool DisableControlPanel { get; set; }
+
+        [JsonPropertyName("software_id")]
+        public int? SoftwareId { get; set; }
+
+        [JsonPropertyName("software_name")]
+        public string? SoftwareName { get; set; }
+
+        [JsonPropertyName("uninstall_string")]
+        public string? UninstallString { get; set; }
+
+        [JsonPropertyName("clean_temp")]
+        public bool CleanTemp { get; set; }
+
+        [JsonPropertyName("clean_recycle_bin")]
+        public bool CleanRecycleBin { get; set; }
+    }
+
+    public class DiskPartitionItem
+    {
+        [JsonPropertyName("drive_letter")]
+        public string DriveLetter { get; set; } = string.Empty;
+
+        [JsonPropertyName("total_gb")]
+        public double TotalGb { get; set; }
+
+        [JsonPropertyName("free_gb")]
+        public double FreeGb { get; set; }
+    }
+
+    public class HardwareSyncRequest
+    {
+        [JsonPropertyName("serial_number")]
+        public string? SerialNumber { get; set; }
+
+        [JsonPropertyName("processor")]
+        public string? Processor { get; set; }
+
+        [JsonPropertyName("ram_gb")]
+        public double? RamGb { get; set; }
+
+        [JsonPropertyName("os_version")]
+        public string? OsVersion { get; set; }
+
+        [JsonPropertyName("partitions")]
+        public List<DiskPartitionItem> Partitions { get; set; } = new();
+    }
+
+    public class SoftwareItem
+    {
+        [JsonPropertyName("nama")]
+        public string Nama { get; set; } = string.Empty;
+
+        [JsonPropertyName("versi")]
+        public string? Versi { get; set; }
+
+        [JsonPropertyName("tanggal_install")]
+        public string? TanggalInstall { get; set; }
+
+        [JsonPropertyName("ukuran_kb")]
+        public long? UkuranKb { get; set; }
+
+        [JsonPropertyName("uninstall_string")]
+        public string? UninstallString { get; set; }
+    }
+
+    public class SoftwareSyncRequest
+    {
+        [JsonPropertyName("software")]
+        public List<SoftwareItem> Software { get; set; } = new();
     }
 
     public class HeartbeatResponseData
@@ -148,6 +217,9 @@ namespace LabAgent.Shared.Models
 
         [JsonPropertyName("schedules")]
         public List<LocalScheduleItem> Schedules { get; set; } = new();
+
+        [JsonPropertyName("blocklist")]
+        public List<string> Blocklist { get; set; } = new();
 
         [JsonPropertyName("kiosk_settings")]
         public KioskPolicy? KioskSettings { get; set; }
