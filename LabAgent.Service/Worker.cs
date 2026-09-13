@@ -46,7 +46,7 @@ namespace LabAgent.Service
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("=================================================");
-            _logger.LogInformation("SmartLab Unimal Agent Service Dimulai (Fase 3 Active)");
+            _logger.LogInformation("SmartLab Unimal Agent Service Dimulai (Production Ready)");
             _logger.LogInformation("Repo Auto-Update: https://github.com/MuslimGunawan/smartlab-agent");
             _logger.LogInformation("=================================================");
 

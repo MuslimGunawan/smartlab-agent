@@ -29,3 +29,4 @@ test_*.ps1
 run_*.ps1
 agent_config.json
 appsettings.Development.json
+dist/

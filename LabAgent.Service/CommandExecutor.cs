@@ -136,6 +136,31 @@ namespace LabAgent.Service
 
                     return ExecuteSilentUninstall(swName, uninstStr);
 
+                case "lock":
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "rundll32.exe",
+                            Arguments = "user32.dll,LockWorkStation",
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        });
+                        return new CommandExecutionResult
+                        {
+                            Success = true,
+                            Message = "Layar workstation PC berhasil dikunci (Lock Workstation)."
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        return new CommandExecutionResult
+                        {
+                            Success = false,
+                            Message = $"Gagal mengunci workstation: {ex.Message}"
+                        };
+                    }
+
                 default:
                     return new CommandExecutionResult
                     {
